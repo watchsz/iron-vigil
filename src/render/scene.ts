@@ -30,7 +30,9 @@ export async function loadModels(names: string[]) {
   await Promise.all(names.map(async (n) => {
     const gltf = await loader.loadAsync(`assets/${n}.glb`);
     gltf.scene.traverse((o) => {
-      if (o instanceof THREE.Mesh) o.material = psxMaterial((o.material as THREE.MeshStandardMaterial).color.getHex());
+      if (!(o instanceof THREE.Mesh)) return;
+      const m = o.material as THREE.MeshStandardMaterial;
+      o.material = psxMaterial(m.color.getHex(), m.emissive.getHex(), m.emissiveIntensity);
     });
     models.set(n, gltf.scene);
   }));

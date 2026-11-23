@@ -8,8 +8,8 @@ const snapGrid = { value: new THREE.Vector2() }; // résolution de la grille de 
 
 /** Matériau des objets du jeu : Lambert + positions écran arrondies (le « tremblement » PS1). */
 // ponytail: pas de mapping affine tant qu'il n'y a pas de textures, à ajouter en phase 3.
-export function psxMaterial(color: number) {
-  const m = new THREE.MeshLambertMaterial({ color });
+export function psxMaterial(color: number, emissive = 0, emissiveIntensity = 1) {
+  const m = new THREE.MeshLambertMaterial({ color, emissive, emissiveIntensity });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uSnap = snapGrid;
     sh.vertexShader = 'uniform vec2 uSnap;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
