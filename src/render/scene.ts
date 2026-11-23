@@ -18,7 +18,7 @@ const ENEMY_LOOK: Record<EnemyKind, { color: number; size: [number, number, numb
 const SHOT_FRAMES = 6;
 
 const box = (color: number, [w, h, d]: [number, number, number]) => {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), psxMaterial(color));
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), psxMaterial({ color }));
   m.geometry.translate(0, h / 2, 0); // origine au sol
   return m;
 };
@@ -32,7 +32,7 @@ export async function loadModels(names: string[]) {
     gltf.scene.traverse((o) => {
       if (!(o instanceof THREE.Mesh)) return;
       const m = o.material as THREE.MeshStandardMaterial;
-      o.material = psxMaterial(m.color.getHex(), m.emissive.getHex(), m.emissiveIntensity);
+      o.material = psxMaterial({ color: m.color, map: m.map, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity });
     });
     models.set(n, gltf.scene);
   }));
@@ -50,10 +50,14 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   const fog = new THREE.Fog(horizon, 12, 40);
   scene.fog = fog;
   scene.add(createSky(horizon, new THREE.Vector3(0.25, 0.04, -1)));
-  scene.add(new THREE.HemisphereLight(0x8a6a5a, 0x100808, 2));
-  const sun = new THREE.DirectionalLight(0xffb090, 1.2);
-  sun.position.set(-5, 10, 4);
-  scene.add(sun);
+  const lights = {
+    hemi: new THREE.HemisphereLight(0xb08878, 0x1a0c08, 4),
+    key: new THREE.DirectionalLight(0xffc0a0, 1.8),  // lumière principale, côté caméra
+    rim: new THREE.DirectionalLight(0xff4010, 3),    // contre-jour de l'éclipse
+  };
+  lights.key.position.set(-4, 8, 8);
+  lights.rim.position.set(6, 3, -20);
+  scene.add(lights.hemi, lights.key, lights.rim);
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
   camera.position.set(0, 6, 13);
@@ -70,10 +74,10 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   const wx = (x: number) => x - s.w / 2 + 0.5;
   const wz = (y: number) => y - s.h / 2 + 0.5;
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), psxMaterial(0x2b2620));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), psxMaterial({ color: 0x2b2620 }));
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
-  const wastes = new THREE.Mesh(new THREE.PlaneGeometry(160, 160, 40, 40), psxMaterial(0x1c1612)); // terres désolées autour
+  const wastes = new THREE.Mesh(new THREE.PlaneGeometry(160, 160, 40, 40), psxMaterial({ color: 0x1c1612 })); // terres désolées autour
   wastes.rotation.x = -Math.PI / 2;
   wastes.position.y = -0.02;
   scene.add(wastes);
@@ -179,11 +183,15 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   gui.add(psx, 'enabled').name('PSX');
   gui.add(psx, 'height', 120, 480, 1).name('résolution (lignes)');
   gui.add(psx, 'snap').name('vertex snapping');
+  gui.add(psx, 'affine').name('mapping affine');
   gui.add(psx, 'dither').name('dithering');
   gui.add(psx, 'colorBits', 3, 8, 1).name('bits / canal');
   gui.add(fog, 'near', 0, 40).name('brouillard début');
   gui.add(fog, 'far', 5, 120).name('brouillard fin');
   gui.addColor({ c: '#' + horizon.getHexString() }, 'c').name('horizon').onChange((v: string) => { horizon.set(v); fog.color.copy(horizon); });
+  gui.add(lights.hemi, 'intensity', 0, 10).name('lumière ambiante');
+  gui.add(lights.key, 'intensity', 0, 10).name('lumière principale');
+  gui.add(lights.rim, 'intensity', 0, 10).name('contre-jour éclipse');
   gui.hide();
   addEventListener('keydown', (ev) => { if (ev.key === 'p') gui.show(gui._hidden); });
 

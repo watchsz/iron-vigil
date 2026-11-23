@@ -2,21 +2,33 @@
 import * as THREE from 'three';
 
 /** Réglages modifiables en direct (panneau debug). */
-export const psx = { enabled: true, height: 240, snap: true, dither: true, colorBits: 5 };
+export const psx = { enabled: true, height: 240, snap: true, affine: true, dither: true, colorBits: 5 };
 
 const snapGrid = { value: new THREE.Vector2() }; // résolution de la grille de snapping, 0 = désactivé
+const affine = { value: 1 }; // 1 = UV sans correction de perspective
 
-/** Matériau des objets du jeu : Lambert + positions écran arrondies (le « tremblement » PS1). */
-// ponytail: pas de mapping affine tant qu'il n'y a pas de textures, à ajouter en phase 3.
-export function psxMaterial(color: number, emissive = 0, emissiveIntensity = 1) {
-  const m = new THREE.MeshLambertMaterial({ color, emissive, emissiveIntensity });
+/** Matériau des objets du jeu : Lambert + vertex snapping (« tremblement » PS1) + mapping affine des textures. */
+export function psxMaterial(params: THREE.MeshLambertMaterialParameters) {
+  const m = new THREE.MeshLambertMaterial(params);
+  if (m.map) {
+    m.map.magFilter = m.map.minFilter = THREE.NearestFilter;
+    m.map.generateMipmaps = false;
+    m.map.needsUpdate = true;
+  }
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uSnap = snapGrid;
-    sh.vertexShader = 'uniform vec2 uSnap;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+    sh.uniforms.uAffine = affine;
+    sh.vertexShader = 'uniform vec2 uSnap;\nuniform float uAffine;\nvarying float vAffineW;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
       if (uSnap.x > 0.0) {
         vec2 g = uSnap * 0.5;
         gl_Position.xy = floor(gl_Position.xy / gl_Position.w * g + 0.5) / g * gl_Position.w;
-      }`);
+      }
+      vAffineW = mix(1.0, gl_Position.w, uAffine);
+      #ifdef USE_MAP
+        vMapUv *= vAffineW;
+      #endif`);
+    sh.fragmentShader = 'varying float vAffineW;\n' + sh.fragmentShader.replace('#include <map_fragment>',
+      THREE.ShaderChunk.map_fragment.replaceAll('vMapUv', '(vMapUv / vAffineW)'));
   };
   return m;
 }
@@ -67,6 +79,7 @@ export function createPsxRenderer(renderer: THREE.WebGLRenderer) {
   return function render(scene: THREE.Scene, camera: THREE.Camera) {
     if (!psx.enabled) {
       snapGrid.value.set(0, 0);
+      affine.value = 0;
       renderer.render(scene, camera);
       return;
     }
@@ -74,6 +87,7 @@ export function createPsxRenderer(renderer: THREE.WebGLRenderer) {
     const h = psx.height, w = Math.round((h * size.x) / size.y);
     if (rt.width !== w || rt.height !== h) rt.setSize(w, h);
     snapGrid.value.set(psx.snap ? w : 0, h);
+    affine.value = psx.affine ? 1 : 0;
     post.uniforms.uRes!.value.set(w, h);
     post.uniforms.uLevels!.value = 2 ** psx.colorBits - 1;
     post.uniforms.uDither!.value = psx.dither ? 1 : 0;
