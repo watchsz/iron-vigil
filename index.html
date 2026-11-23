@@ -12,7 +12,17 @@
       #hud button.selected { border-color: #ffd080; }
       #hud button:disabled { opacity: 0.4; cursor: default; }
       #towers { display: flex; gap: 6px; }
-      #message { position: fixed; top: 40%; width: 100%; text-align: center; font-size: 48px; pointer-events: none; }
+      button { font: inherit; color: inherit; background: #2a1810; border: 1px solid #6a4a30; padding: 4px 8px; cursor: pointer; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      #message { position: fixed; top: 35%; width: 100%; text-align: center; font-size: 48px; pointer-events: none; }
+      #end { position: fixed; top: 50%; width: 100%; display: flex; gap: 12px; justify-content: center; }
+      #panel { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center;
+               background: #140a06e0; border: 1px solid #6a4a30; padding: 8px 12px; }
+      #menu { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+              background: #0a0302b0; }
+      #menu h1 { font-size: 56px; margin: 0; letter-spacing: 8px; color: #d04020; text-shadow: 0 0 12px #000; }
+      #levels { display: flex; flex-direction: column; gap: 8px; min-width: 280px; }
+      [hidden] { display: none !important; }
     </style>
   </head>
   <body>
@@ -22,8 +32,13 @@
       <span>Vague <b id="waveNum"></b></span>
       <span id="towers"></span>
       <button id="wave">Lancer la vague (Espace)</button>
+      <span id="levelName"></span>
+      <span style="opacity:.5">son : M · caméra : glisser / molette</span>
     </div>
+    <div id="panel" hidden><span id="panelName"></span><button id="upgrade"></button><button id="sell"></button></div>
     <div id="message"></div>
+    <div id="end" hidden></div>
+    <div id="menu" hidden><h1>IRON VIGIL</h1><div id="levels"></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
