@@ -1,6 +1,7 @@
 // Rendu greybox : lit le GameState, ne le modifie jamais.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { createPsxRenderer, createSky, psx, psxMaterial } from './psx';
 import type { EnemyKind, TowerKind } from '../data/content';
@@ -22,7 +23,21 @@ const box = (color: number, [w, h, d]: [number, number, number]) => {
   return m;
 };
 
-export function createView(parent: HTMLElement, s: GameState) {
+/** Charge les .glb de public/assets (produits par `docker compose run --rm assets`) avec les matériaux PSX. */
+export async function loadModels(names: string[]) {
+  const loader = new GLTFLoader();
+  const models = new Map<string, THREE.Object3D>();
+  await Promise.all(names.map(async (n) => {
+    const gltf = await loader.loadAsync(`assets/${n}.glb`);
+    gltf.scene.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.material = psxMaterial((o.material as THREE.MeshStandardMaterial).color.getHex());
+    });
+    models.set(n, gltf.scene);
+  }));
+  return models;
+}
+
+export function createView(parent: HTMLElement, s: GameState, models: Map<string, THREE.Object3D>) {
   const renderer = new THREE.WebGLRenderer({ antialias: false });
   parent.appendChild(renderer.domElement);
 
@@ -78,14 +93,20 @@ export function createView(parent: HTMLElement, s: GameState) {
   hover.visible = false;
   scene.add(hover);
 
-  const towers = new Map<number, THREE.Mesh>();
+  const towers = new Map<number, THREE.Object3D>();
   const enemies = new Map<number, THREE.Mesh>();
   const shots: { line: THREE.Line; ttl: number }[] = [];
   const shotMat = new THREE.LineBasicMaterial({ color: 0xffd080 });
   let lastTick = -1;
 
   function sync(alpha: number) {
-    for (const [i, t] of s.towers) if (!towers.has(i)) { const m = at(box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i); towers.set(i, m); scene.add(m); }
+    for (const [i, t] of s.towers) {
+      if (towers.has(i)) continue;
+      const model = models.get(`tower_${t.kind}`);
+      const m = at(model ? model.clone() : box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i);
+      towers.set(i, m);
+      scene.add(m);
+    }
     for (const [i, m] of towers) if (!s.towers.has(i)) { scene.remove(m); towers.delete(i); }
 
     const alive = new Set<number>();

@@ -5,11 +5,22 @@ on:
   pull_request:
 
 jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir -p public/assets && docker compose run --rm assets # .blend -> .glb, échoue si budget dépassé
+      - uses: actions/upload-artifact@v4
+        with: { name: assets, path: public/assets }
+
   test:
+    needs: assets
     runs-on: ubuntu-latest
     container: mcr.microsoft.com/playwright:v1.65.1-noble
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: assets, path: public/assets }
       - run: npm ci
       - run: npm run build # tsc + vite
       - run: npm test

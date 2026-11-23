@@ -16,3 +16,8 @@ services:
   web:
     build: { context: ., dockerfile: docker/Dockerfile, target: web }
     ports: ["8090:80"]
+
+  assets:
+    build: { context: ., dockerfile: docker/assets.Dockerfile }
+    platform: linux/amd64
+    volumes: ["./assets-src:/app/assets-src:ro", "./tools:/app/tools:ro", "./public/assets:/app/public/assets"]
