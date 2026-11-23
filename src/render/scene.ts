@@ -5,17 +5,22 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { createPsxRenderer, createSky, psx, psxMaterial } from './psx';
-import type { EnemyKind, TowerKind } from '../data/content';
+import { TOWERS, type EnemyKind, type TowerKind } from '../data/content';
 import type { GameState } from '../sim/game';
 
 const TOWER_LOOK: Record<TowerKind, { color: number; size: [number, number, number] }> = {
   crossbow: { color: 0x7a5a3a, size: [0.5, 1.2, 0.5] },
   bombard: { color: 0x44444c, size: [0.8, 0.7, 0.8] },
+  brazier: { color: 0x8a3010, size: [0.6, 0.6, 0.6] },
+  chapel: { color: 0x8a8070, size: [0.7, 1.0, 0.7] },
 };
 const ENEMY_LOOK: Record<EnemyKind, { color: number; size: [number, number, number] }> = {
   ghoul: { color: 0x6b7a4a, size: [0.4, 0.6, 0.4] },
   hound: { color: 0x9a2a1a, size: [0.5, 0.3, 0.3] },
+  knight: { color: 0x404850, size: [0.45, 0.8, 0.45] },
+  apostle: { color: 0x3a1020, size: [1.2, 2.2, 1.2] },
 };
+const SHOT_COLOR: Record<TowerKind, number> = { crossbow: 0xffd080, bombard: 0xa0a0a0, brazier: 0xff6010, chapel: 0xfff0c0 };
 const SHOT_FRAMES = 6;
 
 const box = (color: number, [w, h, d]: [number, number, number]) => {
@@ -110,21 +115,30 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   hover.position.y = 0.02;
   hover.visible = false;
   scene.add(hover);
+  const range = new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 48), new THREE.MeshBasicMaterial({ color: 0xffd080, transparent: true, opacity: 0.5 }));
+  range.rotation.x = -Math.PI / 2;
+  range.position.y = 0.04;
+  range.visible = false;
+  scene.add(range);
 
   const towers = new Map<number, THREE.Object3D>();
   const enemies = new Map<number, { obj: THREE.Object3D; mixer?: THREE.AnimationMixer }>();
   const shots: { line: THREE.Line; ttl: number }[] = [];
-  const shotMat = new THREE.LineBasicMaterial({ color: 0xffd080 });
+  const shotMat = Object.fromEntries(Object.entries(SHOT_COLOR).map(([k, c]) => [k, new THREE.LineBasicMaterial({ color: c })])) as Record<TowerKind, THREE.LineBasicMaterial>;
+  const circle = (r: number, y: number) => Array.from({ length: 33 }, (_, k) => new THREE.Vector3(Math.cos(k / 16 * Math.PI) * r, y, Math.sin(k / 16 * Math.PI) * r));
   let lastTick = -1;
 
   function sync(alpha: number) {
     const now = performance.now();
     for (const [i, t] of s.towers) {
-      if (towers.has(i)) continue;
-      const model = models.get(`tower_${t.kind}`);
-      const m = at(model ? model.scene.clone() : box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i);
-      towers.set(i, m);
-      scene.add(m);
+      let m = towers.get(i);
+      if (!m) {
+        const model = models.get(`tower_${t.kind}`);
+        m = at(model ? model.scene.clone() : box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i);
+        towers.set(i, m);
+        scene.add(m);
+      }
+      m.scale.setScalar(1 + 0.12 * t.level); // ponytail: niveau = taille, en attendant des modèles par niveau
     }
     for (const [i, m] of towers) if (!s.towers.has(i)) { scene.remove(m); towers.delete(i); }
 
@@ -133,7 +147,7 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
       alive.add(e.id);
       let v = enemies.get(e.id);
       if (!v) {
-        const model = models.get(`enemy_${e.kind}`);
+        const model = models.get(e.kind === 'apostle' ? 'boss_apostle' : `enemy_${e.kind}`);
         if (model) {
           const obj = cloneSkinned(model.scene);
           const mixer = new THREE.AnimationMixer(obj);
@@ -157,10 +171,12 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
     if (s.tick !== lastTick) {
       lastTick = s.tick;
       for (const sh of s.shots) {
-        const g = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(wx(sh.fromX), 1, wz(sh.fromY)), new THREE.Vector3(wx(sh.toX), 0.3, wz(sh.toY)),
-        ]);
-        const line = new THREE.Line(g, shotMat);
+        const t = s.towers.get(sh.fromY * s.w + sh.fromX);
+        const aura = sh.fromX === sh.toX && sh.fromY === sh.toY;
+        const pts = aura && t
+          ? circle(TOWERS[t.kind].levels[t.level]!.range, 0.1).map((p) => p.add(new THREE.Vector3(wx(sh.fromX), 0, wz(sh.fromY))))
+          : [new THREE.Vector3(wx(sh.fromX), 1, wz(sh.fromY)), new THREE.Vector3(wx(sh.toX), 0.3, wz(sh.toY))];
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), shotMat[sh.kind]);
         scene.add(line);
         shots.push({ line, ttl: SHOT_FRAMES });
       }
@@ -199,6 +215,13 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
     return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
   }
 
+  function showRange(x: number, y: number, r: number | null) {
+    range.visible = r != null;
+    if (r == null) return;
+    range.position.x = wx(x); range.position.z = wz(y);
+    range.scale.set(r, r, 1);
+  }
+
   function setHover(c: [number, number] | null, ok: boolean) {
     hover.visible = !!c;
     if (!c) return;
@@ -223,5 +246,5 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   gui.hide();
   addEventListener('keydown', (ev) => { if (ev.key === 'p') gui.show(gui._hidden); });
 
-  return { renderer, sync, pickCell, cellToScreen, setHover };
+  return { renderer, sync, pickCell, cellToScreen, setHover, showRange };
 }
