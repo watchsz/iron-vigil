@@ -30,14 +30,17 @@ function updateHud() {
   $('message').textContent = state.status === 'won' ? 'Victoire' : state.status === 'lost' ? 'Défaite' : '';
 }
 
-// --- Entrées : clic = poser, clic droit = vendre (70 %), 1/2 = choix de tour, Espace = vague ---
+// --- Entrées : glisser = tourner la caméra, molette = zoom, clic = poser, clic droit = vendre (70 %), 1/2 = choix de tour, Espace = vague ---
 const canvas = view.renderer.domElement;
 canvas.addEventListener('pointermove', (ev) => {
   const c = view.pickCell(ev.clientX, ev.clientY);
   view.setHover(c, !!c && canPlace(state, ...c) && state.gold >= TOWERS[selected].cost);
 });
 canvas.addEventListener('pointerleave', () => view.setHover(null, false));
+let downX = 0, downY = 0;
+canvas.addEventListener('pointerdown', (ev) => { downX = ev.clientX; downY = ev.clientY; });
 canvas.addEventListener('click', (ev) => {
+  if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 5) return; // c'était une rotation de caméra
   const c = view.pickCell(ev.clientX, ev.clientY);
   if (c) placeTower(state, selected, ...c);
 });
