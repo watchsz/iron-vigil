@@ -172,3 +172,81 @@ def bake(o, size=256, keep=("ember",), rig=None):
         if s.material.name not in keep: s.material = baked
     if rig: rig.data.pose_position = 'POSE'
     return img
+
+# ---------- créatures : corps « skin », squelette, poids, cycle de marche ----------
+def skin_body(name, P, R, E, root, ratio, m):
+    """Corps organique à partir d'un graphe de sommets P (nom -> xyz), rayons R (préfixe -> r), arêtes E."""
+    names = list(P)
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([P[k] for k in names], [(names.index(a), names.index(b)) for a, b in E], [])
+    o = bpy.data.objects.new(name, me); bpy.context.collection.objects.link(o)
+    bpy.ops.object.select_all(action='DESELECT'); o.select_set(True); bpy.context.view_layer.objects.active = o
+    sk = o.modifiers.new("skin", 'SKIN'); sk.use_smooth_shade = False
+    for i, k in enumerate(names):
+        r = R[k.split(".")[0]]
+        r = r if isinstance(r, tuple) else (r, r)
+        sv = me.skin_vertices[0].data[i]; sv.radius = r; sv.use_root = (k == root)
+    o.modifiers.new("sub", 'SUBSURF').levels = 1
+    d = o.modifiers.new("dec", 'DECIMATE'); d.ratio = ratio
+    for mod in ("skin", "sub", "dec"): bpy.ops.object.modifier_apply(modifier=mod)
+    o.data.materials.append(m)
+    PARTS.append(o)
+    return o
+
+def make_rig(o, B):
+    """B : nom -> (tête, queue, parent). Crée l'armature, parente `o`, poids = 2 os les plus proches."""
+    arm = bpy.data.armatures.new(o.name + "_rig")
+    rig = bpy.data.objects.new(o.name + "_rig", arm); bpy.context.collection.objects.link(rig)
+    bpy.ops.object.select_all(action='DESELECT'); rig.select_set(True); bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    for n, (h, t, p) in B.items():
+        b = arm.edit_bones.new(n); b.head = h; b.tail = t
+    for n, (h, t, p) in B.items():
+        if p: arm.edit_bones[n].parent = arm.edit_bones[p]
+    bpy.ops.object.mode_set(mode='OBJECT')
+    o.parent = rig
+    o.modifiers.new("rig", 'ARMATURE').object = rig
+    def seg(p, a, b):
+        ab = b - a; t = max(0, min(1, (p - a).dot(ab) / ab.length_squared)); return (a + ab * t - p).length
+    bones = {n: (Vector(h), Vector(t)) for n, (h, t, p) in B.items()}
+    groups = {n: o.vertex_groups.new(name=n) for n in bones}
+    for v in o.data.vertices:
+        d = sorted((seg(v.co, *bones[n]), n) for n in bones)[:2]
+        w = [1 / max(x, 1e-3) ** 4 for x, _ in d]; s = sum(w)
+        for (x, n), wi in zip(d, w):
+            if wi / s > 0.02: groups[n].add([v.index], wi / s, 'REPLACE')
+    for pb in rig.pose.bones: pb.rotation_mode = 'XYZ'
+    return rig
+
+def animate(rig, name, frames, pose):
+    """pose(ph) -> {os: (rot xyz) ou ('loc', xyz)} pour ph dans [0, 2π[ ; boucle sur `frames` images."""
+    rig.animation_data_create()
+    act = bpy.data.actions.new(name); rig.animation_data.action = act
+    for f in range(0, frames + 1, 2):
+        ph = 2 * math.pi * f / frames
+        for bone, val in pose(ph).items():
+            pb = rig.pose.bones[bone]
+            if val[0] == 'loc': pb.location = val[1]; pb.keyframe_insert("location", frame=f + 1)
+            else: pb.rotation_euler = val; pb.keyframe_insert("rotation_euler", frame=f + 1)
+    sc = bpy.context.scene; sc.frame_start, sc.frame_end, sc.render.fps = 1, frames, 24
+    for pb in rig.pose.bones: pb.rotation_euler = (0, 0, 0); pb.location = (0, 0, 0)
+    return act
+
+def settle_rig(o, rig):
+    """Pose maillage + squelette au sol ensemble."""
+    z = min(v.co.z for v in o.data.vertices)
+    for v in o.data.vertices: v.co.z -= z
+    bpy.ops.object.select_all(action='DESELECT'); rig.select_set(True); bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    for b in rig.data.edit_bones: b.head.z -= z; b.tail.z -= z
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+def mat_skin(name, lo, hi, vein=(0.25, 0.05, 0.06), scale=6):
+    """Peau : base bruitée lo→hi, taches, veines (voronoi)."""
+    m = mat(name); N, L = _tree(m); v = _coords(N, L, (scale,) * 3)
+    base = _ramp(N, [(0.3, lo), (0.7, hi)]); L.new(_noise(N, L, v, 2.5), base.inputs[0])
+    blot = _ramp(N, [(0.55, (1, 1, 1)), (0.75, (0.45, 0.3, 0.3))]); L.new(_noise(N, L, v, 1.2, 3), blot.inputs[0])
+    vor = N.new("ShaderNodeTexVoronoi"); vor.feature = 'DISTANCE_TO_EDGE'; vor.inputs["Scale"].default_value = 1.5
+    L.new(v, vor.inputs["Vector"])
+    veins = _ramp(N, [(0.0, vein), (0.04, (1, 1, 1))]); L.new(vor.outputs["Distance"], veins.inputs[0])
+    _finish(N, L, _mul(N, L, _mul(N, L, base.outputs[0], blot.outputs[0]), veins.outputs[0]), 0.08); return m

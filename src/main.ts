@@ -16,7 +16,8 @@ const go = (q: string) => { location.search = q; };
 
 const state = createGame(LEVELS[levelIndex]);
 const view = createView(document.body, state, await loadModels([
-  'tower_crossbow', 'enemy_ghoul', 'decor_gate', 'decor_rock', 'decor_ground', 'decor_spawn',
+  ...Object.keys(TOWERS).map((k) => `tower_${k}`), 'enemy_ghoul', 'enemy_hound', 'enemy_knight', 'boss_apostle',
+  'decor_gate', 'decor_rock', 'decor_ground', 'decor_spawn',
 ]));
 const $ = (id: string) => document.getElementById(id)!;
 const button = (label: string, onclick: () => void, parent: HTMLElement) => {
@@ -57,6 +58,10 @@ function updateHud() {
     b.classList.toggle('selected', kind === building && !selected);
     b.disabled = state.gold < TOWERS[kind].levels[0]!.cost;
   }
+
+  const boss = state.enemies.find((e) => e.kind === 'apostle');
+  $('boss').hidden = !boss;
+  if (boss) ($('bossHp') as HTMLElement).style.width = `${(100 * boss.hp) / boss.maxHp}%`;
 
   const t = selected && towerAt(state, ...selected);
   $('panel').hidden = !t;

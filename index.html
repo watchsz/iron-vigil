@@ -22,6 +22,9 @@
               background: #0a0302b0; }
       #menu h1 { font-size: 56px; margin: 0; letter-spacing: 8px; color: #d04020; text-shadow: 0 0 12px #000; }
       #levels { display: flex; flex-direction: column; gap: 8px; min-width: 280px; }
+      #boss { position: fixed; top: 48px; left: 50%; transform: translateX(-50%); width: min(480px, 80vw); text-align: center; color: #d04020; }
+      #boss > div { height: 8px; border: 1px solid #6a2010; background: #140404; }
+      #bossHp { height: 100%; background: #a01808; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -36,6 +39,7 @@
       <span style="opacity:.5">son : M · caméra : glisser / molette</span>
     </div>
     <div id="panel" hidden><span id="panelName"></span><button id="upgrade"></button><button id="sell"></button></div>
+    <div id="boss" hidden>Apôtre<div><div id="bossHp"></div></div></div>
     <div id="message"></div>
     <div id="end" hidden></div>
     <div id="menu" hidden><h1>IRON VIGIL</h1><div id="levels"></div></div>

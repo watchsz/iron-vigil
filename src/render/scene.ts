@@ -147,7 +147,7 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
       alive.add(e.id);
       let v = enemies.get(e.id);
       if (!v) {
-        const model = models.get(`enemy_${e.kind}`);
+        const model = models.get(e.kind === 'apostle' ? 'boss_apostle' : `enemy_${e.kind}`);
         if (model) {
           const obj = cloneSkinned(model.scene);
           const mixer = new THREE.AnimationMixer(obj);
