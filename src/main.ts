@@ -3,7 +3,7 @@ import { createView, loadModels } from './render/scene';
 import { canPlace, createGame, placeTower, sellTower, startWave, step, TICK_HZ } from './sim/game';
 
 const state = createGame();
-const view = createView(document.body, state, await loadModels(['tower_crossbow', 'enemy_ghoul']));
+const view = createView(document.body, state, await loadModels(['tower_crossbow', 'enemy_ghoul', 'decor_gate', 'decor_rock', 'decor_ground', 'decor_spawn']));
 const $ = (id: string) => document.getElementById(id)!;
 
 // --- HUD ---

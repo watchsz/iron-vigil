@@ -78,24 +78,32 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   const wx = (x: number) => x - s.w / 2 + 0.5;
   const wz = (y: number) => y - s.h / 2 + 0.5;
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), psxMaterial({ color: 0x2b2620 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h)); // invisible : sert au picking
   ground.rotation.x = -Math.PI / 2;
+  ground.visible = false;
   scene.add(ground);
+  const decor = (name: string) => models.get(name)!.scene.clone();
+  scene.add(decor('decor_ground'));
   const wastes = new THREE.Mesh(new THREE.PlaneGeometry(160, 160, 40, 40), psxMaterial({ color: 0x1c1612 })); // terres désolées autour
   wastes.rotation.x = -Math.PI / 2;
-  wastes.position.y = -0.02;
+  wastes.position.y = -0.12;
   scene.add(wastes);
 
   const grid: number[] = [];
-  for (let x = 0; x <= s.w; x++) grid.push(x - s.w / 2, 0.01, -s.h / 2, x - s.w / 2, 0.01, s.h / 2);
-  for (let y = 0; y <= s.h; y++) grid.push(-s.w / 2, 0.01, y - s.h / 2, s.w / 2, 0.01, y - s.h / 2);
+  for (let x = 0; x <= s.w; x++) grid.push(x - s.w / 2, 0.03, -s.h / 2, x - s.w / 2, 0.03, s.h / 2);
+  for (let y = 0; y <= s.h; y++) grid.push(-s.w / 2, 0.03, y - s.h / 2, s.w / 2, 0.03, y - s.h / 2);
   const gridGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(grid, 3));
-  scene.add(new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x2e2822 })));
+  scene.add(new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x806050, transparent: true, opacity: 0.18 })));
 
   const at = <T extends THREE.Object3D>(m: T, i: number) => { m.position.set(wx(i % s.w), 0, wz((i / s.w) | 0)); return m; };
-  s.rocks.forEach((r, i) => { if (r) scene.add(at(box(0x3a3632, [1, 0.8, 1]), i)); });
-  scene.add(at(box(0x55504a, [1, 2, 1]), s.goal)); // porte de la forteresse
-  scene.add(at(box(0x401010, [1, 0.05, 1]), s.spawn));
+  s.rocks.forEach((r, i) => {
+    if (!r) return;
+    const m = at(decor('decor_rock'), i);
+    m.rotation.y = (i * 2.399) % (Math.PI * 2); // variété sans hasard : angle d'or
+    scene.add(m);
+  });
+  scene.add(at(decor('decor_gate'), s.goal)); // porte de la forteresse
+  scene.add(at(decor('decor_spawn'), s.spawn));
 
   const hover = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35 }));
   hover.rotation.x = -Math.PI / 2;

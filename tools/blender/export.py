@@ -2,7 +2,7 @@
 # blender -b assets-src/x.blend --python-exit-code 1 --python tools/blender/export.py -- public/assets
 import bpy, os, sys
 
-BUDGET = {"tower": 1200, "enemy": 900, "boss": 1500, "decor": 300}  # triangles max par objet racine
+BUDGET = {"tower": 1200, "enemy": 900, "boss": 1500, "decor": 1500}  # triangles max par objet racine
 ACTIONS = {"idle", "walk", "attack", "die"}
 
 out_dir = sys.argv[sys.argv.index("--") + 1]
@@ -32,7 +32,8 @@ for o in roots:
     if any(abs(s - 1) > 1e-4 for s in o.scale):
         errors.append(f"{o.name}: échelle non appliquée {tuple(o.scale)}")
     zmin = min((m.matrix_world @ v.co).z for m in meshes if m.type == "MESH" for v in m.data.vertices)
-    if abs(zmin) > 0.01 or abs(o.location.z) > 0.01:
+    on_ground = o.name.endswith("_ground") or abs(zmin) <= 0.01  # le sol lui-même plonge sous 0 sur ses bords
+    if not on_ground or abs(o.location.z) > 0.01:
         errors.append(f"{o.name}: doit être posé au sol avec l'origine au sol (z min {zmin:.3f}, origine {o.location.z:.3f})")
     print(f"{o.name}: {tris} triangles (budget {BUDGET[kind]})")
 

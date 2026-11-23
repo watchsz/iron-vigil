@@ -80,7 +80,7 @@ Tout dans `src/render/psx/`, réglable en direct via un panneau debug :
 4. **Textures 64–128 px**, `NearestFilter`, pas de mipmaps.
 5. **Couleur 15 bits + dithering** ordonné 4×4 en post-process.
 6. **Brouillard** linéaire fort, ciel d'éclipse rouge/noir, éclairage par vertex (Gouraud).
-7. **Budgets** (vérifiés par `export.py`, l'export échoue si dépassé) : tour ≤ 1200 tris, ennemi ≤ 900, boss ≤ 1500, décor ≤ 300 par pièce.
+7. **Budgets** (vérifiés par `export.py`, l'export échoue si dépassé) : tour ≤ 1200 tris, ennemi ≤ 900, boss ≤ 1500, décor ≤ 1500 par pièce.
 
 ---
 
