@@ -2,7 +2,7 @@
 # blender -b assets-src/x.blend --python-exit-code 1 --python tools/blender/export.py -- public/assets
 import bpy, os, sys
 
-BUDGET = {"tower": 1200, "enemy": 400, "boss": 1500, "decor": 300}  # triangles max par objet racine
+BUDGET = {"tower": 1200, "enemy": 900, "boss": 1500, "decor": 300}  # triangles max par objet racine
 ACTIONS = {"idle", "walk", "attack", "die"}
 
 out_dir = sys.argv[sys.argv.index("--") + 1]

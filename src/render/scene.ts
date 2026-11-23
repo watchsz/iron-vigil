@@ -1,6 +1,7 @@
 // Rendu greybox : lit le GameState, ne le modifie jamais.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { createPsxRenderer, createSky, psx, psxMaterial } from './psx';
@@ -23,10 +24,13 @@ const box = (color: number, [w, h, d]: [number, number, number]) => {
   return m;
 };
 
+export interface Model { scene: THREE.Object3D; clips: THREE.AnimationClip[] }
+const ANIM_FPS = 12; // animations lues en pas saccadés, look PSX
+
 /** Charge les .glb de public/assets (produits par `docker compose run --rm assets`) avec les matériaux PSX. */
 export async function loadModels(names: string[]) {
   const loader = new GLTFLoader();
-  const models = new Map<string, THREE.Object3D>();
+  const models = new Map<string, Model>();
   await Promise.all(names.map(async (n) => {
     const gltf = await loader.loadAsync(`assets/${n}.glb`);
     gltf.scene.traverse((o) => {
@@ -34,12 +38,12 @@ export async function loadModels(names: string[]) {
       const m = o.material as THREE.MeshStandardMaterial;
       o.material = psxMaterial({ color: m.color, map: m.map, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity });
     });
-    models.set(n, gltf.scene);
+    models.set(n, { scene: gltf.scene, clips: gltf.animations });
   }));
   return models;
 }
 
-export function createView(parent: HTMLElement, s: GameState, models: Map<string, THREE.Object3D>) {
+export function createView(parent: HTMLElement, s: GameState, models: Map<string, Model>) {
   const renderer = new THREE.WebGLRenderer({ antialias: false });
   parent.appendChild(renderer.domElement);
 
@@ -100,16 +104,17 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
   scene.add(hover);
 
   const towers = new Map<number, THREE.Object3D>();
-  const enemies = new Map<number, THREE.Mesh>();
+  const enemies = new Map<number, { obj: THREE.Object3D; mixer?: THREE.AnimationMixer }>();
   const shots: { line: THREE.Line; ttl: number }[] = [];
   const shotMat = new THREE.LineBasicMaterial({ color: 0xffd080 });
   let lastTick = -1;
 
   function sync(alpha: number) {
+    const now = performance.now();
     for (const [i, t] of s.towers) {
       if (towers.has(i)) continue;
       const model = models.get(`tower_${t.kind}`);
-      const m = at(model ? model.clone() : box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i);
+      const m = at(model ? model.scene.clone() : box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i);
       towers.set(i, m);
       scene.add(m);
     }
@@ -118,13 +123,28 @@ export function createView(parent: HTMLElement, s: GameState, models: Map<string
     const alive = new Set<number>();
     for (const e of s.enemies) {
       alive.add(e.id);
-      let m = enemies.get(e.id);
-      if (!m) { m = box(ENEMY_LOOK[e.kind].color, ENEMY_LOOK[e.kind].size); enemies.set(e.id, m); scene.add(m); }
+      let v = enemies.get(e.id);
+      if (!v) {
+        const model = models.get(`enemy_${e.kind}`);
+        if (model) {
+          const obj = cloneSkinned(model.scene);
+          const mixer = new THREE.AnimationMixer(obj);
+          const walk = THREE.AnimationClip.findByName(model.clips, 'walk');
+          if (walk) mixer.clipAction(walk).play();
+          v = { obj, mixer };
+        } else {
+          v = { obj: box(ENEMY_LOOK[e.kind].color, ENEMY_LOOK[e.kind].size) };
+        }
+        enemies.set(e.id, v);
+        scene.add(v.obj);
+      }
       const x = e.px + (e.x - e.px) * alpha, y = e.py + (e.y - e.py) * alpha;
-      m.position.set(wx(x), 0, wz(y));
-      m.scale.y = 0.3 + 0.7 * (e.hp / e.maxHp); // greybox : la taille montre les PV
+      v.obj.position.set(wx(x), 0, wz(y));
+      if (e.x !== e.px || e.y !== e.py) v.obj.rotation.y = Math.atan2(e.x - e.px, e.y - e.py); // face au sens de marche
+      if (v.mixer) v.mixer.setTime(Math.floor((now / 1000 + e.id * 0.37) * ANIM_FPS) / ANIM_FPS); // décalé par ennemi
+      else v.obj.scale.y = 0.3 + 0.7 * (e.hp / e.maxHp); // greybox : la taille montre les PV
     }
-    for (const [id, m] of enemies) if (!alive.has(id)) { scene.remove(m); enemies.delete(id); }
+    for (const [id, v] of enemies) if (!alive.has(id)) { scene.remove(v.obj); enemies.delete(id); }
 
     if (s.tick !== lastTick) {
       lastTick = s.tick;
