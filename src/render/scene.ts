@@ -1,6 +1,8 @@
 // Rendu greybox : lit le GameState, ne le modifie jamais.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { createPsxRenderer, createSky, psx, psxMaterial } from './psx';
 import type { EnemyKind, TowerKind } from '../data/content';
@@ -17,12 +19,31 @@ const ENEMY_LOOK: Record<EnemyKind, { color: number; size: [number, number, numb
 const SHOT_FRAMES = 6;
 
 const box = (color: number, [w, h, d]: [number, number, number]) => {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), psxMaterial(color));
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), psxMaterial({ color }));
   m.geometry.translate(0, h / 2, 0); // origine au sol
   return m;
 };
 
-export function createView(parent: HTMLElement, s: GameState) {
+export interface Model { scene: THREE.Object3D; clips: THREE.AnimationClip[] }
+const ANIM_FPS = 12; // animations lues en pas saccadés, look PSX
+
+/** Charge les .glb de public/assets (produits par `docker compose run --rm assets`) avec les matériaux PSX. */
+export async function loadModels(names: string[]) {
+  const loader = new GLTFLoader();
+  const models = new Map<string, Model>();
+  await Promise.all(names.map(async (n) => {
+    const gltf = await loader.loadAsync(`assets/${n}.glb`);
+    gltf.scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const m = o.material as THREE.MeshStandardMaterial;
+      o.material = psxMaterial({ color: m.color, map: m.map, emissive: m.emissive, emissiveIntensity: m.emissiveIntensity });
+    });
+    models.set(n, { scene: gltf.scene, clips: gltf.animations });
+  }));
+  return models;
+}
+
+export function createView(parent: HTMLElement, s: GameState, models: Map<string, Model>) {
   const renderer = new THREE.WebGLRenderer({ antialias: false });
   parent.appendChild(renderer.domElement);
 
@@ -33,10 +54,14 @@ export function createView(parent: HTMLElement, s: GameState) {
   const fog = new THREE.Fog(horizon, 12, 40);
   scene.fog = fog;
   scene.add(createSky(horizon, new THREE.Vector3(0.25, 0.04, -1)));
-  scene.add(new THREE.HemisphereLight(0x8a6a5a, 0x100808, 2));
-  const sun = new THREE.DirectionalLight(0xffb090, 1.2);
-  sun.position.set(-5, 10, 4);
-  scene.add(sun);
+  const lights = {
+    hemi: new THREE.HemisphereLight(0xb08878, 0x1a0c08, 4),
+    key: new THREE.DirectionalLight(0xffc0a0, 1.8),  // lumière principale, côté caméra
+    rim: new THREE.DirectionalLight(0xff4010, 3),    // contre-jour de l'éclipse
+  };
+  lights.key.position.set(-4, 8, 8);
+  lights.rim.position.set(6, 3, -20);
+  scene.add(lights.hemi, lights.key, lights.rim);
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
   camera.position.set(0, 6, 13);
@@ -53,24 +78,32 @@ export function createView(parent: HTMLElement, s: GameState) {
   const wx = (x: number) => x - s.w / 2 + 0.5;
   const wz = (y: number) => y - s.h / 2 + 0.5;
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h), psxMaterial(0x2b2620));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(s.w, s.h)); // invisible : sert au picking
   ground.rotation.x = -Math.PI / 2;
+  ground.visible = false;
   scene.add(ground);
-  const wastes = new THREE.Mesh(new THREE.PlaneGeometry(160, 160, 40, 40), psxMaterial(0x1c1612)); // terres désolées autour
+  const decor = (name: string) => models.get(name)!.scene.clone();
+  scene.add(decor('decor_ground'));
+  const wastes = new THREE.Mesh(new THREE.PlaneGeometry(160, 160, 40, 40), psxMaterial({ color: 0x1c1612 })); // terres désolées autour
   wastes.rotation.x = -Math.PI / 2;
-  wastes.position.y = -0.02;
+  wastes.position.y = -0.12;
   scene.add(wastes);
 
   const grid: number[] = [];
-  for (let x = 0; x <= s.w; x++) grid.push(x - s.w / 2, 0.01, -s.h / 2, x - s.w / 2, 0.01, s.h / 2);
-  for (let y = 0; y <= s.h; y++) grid.push(-s.w / 2, 0.01, y - s.h / 2, s.w / 2, 0.01, y - s.h / 2);
+  for (let x = 0; x <= s.w; x++) grid.push(x - s.w / 2, 0.03, -s.h / 2, x - s.w / 2, 0.03, s.h / 2);
+  for (let y = 0; y <= s.h; y++) grid.push(-s.w / 2, 0.03, y - s.h / 2, s.w / 2, 0.03, y - s.h / 2);
   const gridGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(grid, 3));
-  scene.add(new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x2e2822 })));
+  scene.add(new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x806050, transparent: true, opacity: 0.18 })));
 
   const at = <T extends THREE.Object3D>(m: T, i: number) => { m.position.set(wx(i % s.w), 0, wz((i / s.w) | 0)); return m; };
-  s.rocks.forEach((r, i) => { if (r) scene.add(at(box(0x3a3632, [1, 0.8, 1]), i)); });
-  scene.add(at(box(0x55504a, [1, 2, 1]), s.goal)); // porte de la forteresse
-  scene.add(at(box(0x401010, [1, 0.05, 1]), s.spawn));
+  s.rocks.forEach((r, i) => {
+    if (!r) return;
+    const m = at(decor('decor_rock'), i);
+    m.rotation.y = (i * 2.399) % (Math.PI * 2); // variété sans hasard : angle d'or
+    scene.add(m);
+  });
+  scene.add(at(decor('decor_gate'), s.goal)); // porte de la forteresse
+  scene.add(at(decor('decor_spawn'), s.spawn));
 
   const hover = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35 }));
   hover.rotation.x = -Math.PI / 2;
@@ -78,26 +111,48 @@ export function createView(parent: HTMLElement, s: GameState) {
   hover.visible = false;
   scene.add(hover);
 
-  const towers = new Map<number, THREE.Mesh>();
-  const enemies = new Map<number, THREE.Mesh>();
+  const towers = new Map<number, THREE.Object3D>();
+  const enemies = new Map<number, { obj: THREE.Object3D; mixer?: THREE.AnimationMixer }>();
   const shots: { line: THREE.Line; ttl: number }[] = [];
   const shotMat = new THREE.LineBasicMaterial({ color: 0xffd080 });
   let lastTick = -1;
 
   function sync(alpha: number) {
-    for (const [i, t] of s.towers) if (!towers.has(i)) { const m = at(box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i); towers.set(i, m); scene.add(m); }
+    const now = performance.now();
+    for (const [i, t] of s.towers) {
+      if (towers.has(i)) continue;
+      const model = models.get(`tower_${t.kind}`);
+      const m = at(model ? model.scene.clone() : box(TOWER_LOOK[t.kind].color, TOWER_LOOK[t.kind].size), i);
+      towers.set(i, m);
+      scene.add(m);
+    }
     for (const [i, m] of towers) if (!s.towers.has(i)) { scene.remove(m); towers.delete(i); }
 
     const alive = new Set<number>();
     for (const e of s.enemies) {
       alive.add(e.id);
-      let m = enemies.get(e.id);
-      if (!m) { m = box(ENEMY_LOOK[e.kind].color, ENEMY_LOOK[e.kind].size); enemies.set(e.id, m); scene.add(m); }
+      let v = enemies.get(e.id);
+      if (!v) {
+        const model = models.get(`enemy_${e.kind}`);
+        if (model) {
+          const obj = cloneSkinned(model.scene);
+          const mixer = new THREE.AnimationMixer(obj);
+          const walk = THREE.AnimationClip.findByName(model.clips, 'walk');
+          if (walk) mixer.clipAction(walk).play();
+          v = { obj, mixer };
+        } else {
+          v = { obj: box(ENEMY_LOOK[e.kind].color, ENEMY_LOOK[e.kind].size) };
+        }
+        enemies.set(e.id, v);
+        scene.add(v.obj);
+      }
       const x = e.px + (e.x - e.px) * alpha, y = e.py + (e.y - e.py) * alpha;
-      m.position.set(wx(x), 0, wz(y));
-      m.scale.y = 0.3 + 0.7 * (e.hp / e.maxHp); // greybox : la taille montre les PV
+      v.obj.position.set(wx(x), 0, wz(y));
+      if (e.x !== e.px || e.y !== e.py) v.obj.rotation.y = Math.atan2(e.x - e.px, e.y - e.py); // face au sens de marche
+      if (v.mixer) v.mixer.setTime(Math.floor((now / 1000 + e.id * 0.37) * ANIM_FPS) / ANIM_FPS); // décalé par ennemi
+      else v.obj.scale.y = 0.3 + 0.7 * (e.hp / e.maxHp); // greybox : la taille montre les PV
     }
-    for (const [id, m] of enemies) if (!alive.has(id)) { scene.remove(m); enemies.delete(id); }
+    for (const [id, v] of enemies) if (!alive.has(id)) { scene.remove(v.obj); enemies.delete(id); }
 
     if (s.tick !== lastTick) {
       lastTick = s.tick;
@@ -156,11 +211,15 @@ export function createView(parent: HTMLElement, s: GameState) {
   gui.add(psx, 'enabled').name('PSX');
   gui.add(psx, 'height', 120, 480, 1).name('résolution (lignes)');
   gui.add(psx, 'snap').name('vertex snapping');
+  gui.add(psx, 'affine').name('mapping affine');
   gui.add(psx, 'dither').name('dithering');
   gui.add(psx, 'colorBits', 3, 8, 1).name('bits / canal');
   gui.add(fog, 'near', 0, 40).name('brouillard début');
   gui.add(fog, 'far', 5, 120).name('brouillard fin');
   gui.addColor({ c: '#' + horizon.getHexString() }, 'c').name('horizon').onChange((v: string) => { horizon.set(v); fog.color.copy(horizon); });
+  gui.add(lights.hemi, 'intensity', 0, 10).name('lumière ambiante');
+  gui.add(lights.key, 'intensity', 0, 10).name('lumière principale');
+  gui.add(lights.rim, 'intensity', 0, 10).name('contre-jour éclipse');
   gui.hide();
   addEventListener('keydown', (ev) => { if (ev.key === 'p') gui.show(gui._hidden); });
 
