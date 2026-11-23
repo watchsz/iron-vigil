@@ -1,5 +1,6 @@
 // Rendu greybox : lit le GameState, ne le modifie jamais.
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import { createPsxRenderer, createSky, psx, psxMaterial } from './psx';
 import type { EnemyKind, TowerKind } from '../data/content';
@@ -38,9 +39,16 @@ export function createView(parent: HTMLElement, s: GameState) {
   scene.add(sun);
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
-  const cam = { height: 8, back: 12, lookZ: -4 };
-  const placeCamera = () => { camera.position.set(0, cam.height, cam.back); camera.lookAt(0, 0, cam.lookZ); };
-  placeCamera();
+  camera.position.set(0, 6, 13);
+  // Orbite autour du centre de la carte : glisser = tourner, molette = zoom.
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enablePan = false;
+  controls.mouseButtons.RIGHT = null; // clic droit = vendre
+  controls.minDistance = 6;
+  controls.maxDistance = 28;
+  controls.minPolarAngle = 0.15;
+  controls.maxPolarAngle = 1.45; // jamais sous le sol
+  controls.update();
 
   const wx = (x: number) => x - s.w / 2 + 0.5;
   const wz = (y: number) => y - s.h / 2 + 0.5;
@@ -153,9 +161,6 @@ export function createView(parent: HTMLElement, s: GameState) {
   gui.add(fog, 'near', 0, 40).name('brouillard début');
   gui.add(fog, 'far', 5, 120).name('brouillard fin');
   gui.addColor({ c: '#' + horizon.getHexString() }, 'c').name('horizon').onChange((v: string) => { horizon.set(v); fog.color.copy(horizon); });
-  gui.add(cam, 'height', 3, 20).name('caméra hauteur').onChange(placeCamera);
-  gui.add(cam, 'back', 4, 20).name('caméra recul').onChange(placeCamera);
-  gui.add(cam, 'lookZ', -8, 4).name('caméra visée').onChange(placeCamera);
   gui.hide();
   addEventListener('keydown', (ev) => { if (ev.key === 'p') gui.show(gui._hidden); });
 
